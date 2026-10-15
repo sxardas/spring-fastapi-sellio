@@ -28,10 +28,20 @@ jobs:
 
     outputs:
       spring: ${{ steps.filter.outputs.spring }}
+      exists: ${{ steps.project.outputs.exists }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Check project exists
+        id: project
+        run: |
+          if [ -f service-spring/gradlew ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Filter paths
         id: filter
@@ -46,7 +56,9 @@ jobs:
     name: Spring CI - Unit & Integration
 
     needs: changes
-    if: needs.changes.outputs.spring == 'true' || github.event_name == 'workflow_dispatch'
+    if: >-
+      needs.changes.outputs.exists == 'true' &&
+      (needs.changes.outputs.spring == 'true' || github.event_name == 'workflow_dispatch')
 
     runs-on: ubuntu-latest
     timeout-minutes: 15
