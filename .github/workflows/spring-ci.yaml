@@ -1,0 +1,89 @@
+name: Spring CI
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+on:
+  push:
+    branches: [ master ]
+
+  pull_request:
+
+  workflow_dispatch:
+
+jobs:
+  changes:
+    name: Detect changes
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+      pull-requests: read
+
+    outputs:
+      spring: ${{ steps.filter.outputs.spring }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            spring:
+              - "service-spring/**"
+              - ".github/workflows/spring-ci.yaml"
+
+  unit-integration:
+    name: Spring CI - Unit & Integration
+
+    needs: changes
+    if: needs.changes.outputs.spring == 'true' || github.event_name == 'workflow_dispatch'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: service-spring
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Unit tests
+        run: ./gradlew test
+
+      - name: Integration tests
+        run: ./gradlew integrationTest
+
+      - name: Build
+        run: ./gradlew build -x test -x integrationTest
+
+      - name: Save test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: |
+            service-spring/build/reports/tests/
+            service-spring/build/test-results/
+          if-no-files-found: warn
+          retention-days: 7
