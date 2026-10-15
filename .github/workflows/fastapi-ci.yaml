@@ -1,0 +1,96 @@
+name: FastAPI CI
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+on:
+  push:
+    branches: [ master ]
+
+  pull_request:
+
+  workflow_dispatch:
+
+jobs:
+  changes:
+    name: Detect changes
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+      pull-requests: read
+
+    outputs:
+      fastapi: ${{ steps.filter.outputs.fastapi }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            fastapi:
+              - "service-fastapi/**"
+              - ".github/workflows/fastapi-ci.yaml"
+
+  unit-integration:
+    name: FastAPI CI - Unit & Integration
+
+    needs: changes
+    if: needs.changes.outputs.fastapi == 'true' || github.event_name == 'workflow_dispatch'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: service-fastapi
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: service-fastapi/uv.lock
+
+      - name: Install Python
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Unit tests
+        run: uv run pytest tests/unit --junitxml=reports/unit.xml
+
+      - name: Integration tests
+        run: uv run pytest tests/integration --junitxml=reports/integration.xml
+
+      - name: Build
+        run: uv build
+
+      - name: Save test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fastapi-test-reports
+          path: service-fastapi/reports/
+          if-no-files-found: warn
+          retention-days: 7
